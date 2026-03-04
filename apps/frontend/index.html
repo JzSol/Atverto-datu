@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cadastre Lookup</title>
+    <link
+      href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>Cadastre Lookup</h1>
+        <form id="search-form">
+          <input
+            id="kadastrs-input"
+            type="text"
+            placeholder="Enter kadastrs number"
+            autocomplete="off"
+          />
+          <button type="submit">Find</button>
+        </form>
+        <div class="bulk-controls">
+          <label for="region-select">Load all properties</label>
+          <div class="bulk-actions">
+            <select id="region-select">
+              <option value="">Select region</option>
+              <option value="all">All regions (slow)</option>
+              <option value="austrumu">austrumu</option>
+              <option value="centra">centra</option>
+              <option value="dienvidu">dienvidu</option>
+              <option value="kurzemes">kurzemes</option>
+              <option value="vidzemes">vidzemes</option>
+            </select>
+            <button type="button" id="load-all">Load all</button>
+          </div>
+        </div>
+        <div id="status" role="status"></div>
+      </header>
+
+      <main>
+        <section id="map"></section>
+        <section id="details">
+          <h2>Property details</h2>
+          <div id="details-list" class="details-list">No data loaded.</div>
+          <div class="commands">
+            <h3>Quick ingest commands</h3>
+            <pre>
+cd /Users/JanisMac_mini/Atverto-datu/geo_ingest
+source .venv/bin/activate
+python3 ingest.py
+            </pre>
+            <div class="command-actions">
+              <button type="button" id="copy-commands">Copy commands</button>
+              <button type="button" id="copy-cadaster">Copy test cadaster</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script
+      src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"
+    ></script>
+    <script>
+      window.MAPBOX_ACCESS_TOKEN = window.MAPBOX_ACCESS_TOKEN || "";
+    </script>
+    <script src="app.js"></script>
+  </body>
+</html>

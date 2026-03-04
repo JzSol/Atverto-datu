@@ -1,0 +1,12 @@
+{
+  "name": "atverto-datu",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Open data geodb tooling + frontend",
+  "scripts": {
+    "dev": "http-server ./apps/frontend -p 5173 -c-1"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

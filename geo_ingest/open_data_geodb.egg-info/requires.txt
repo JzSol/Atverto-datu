@@ -1,0 +1,12 @@
+geopandas
+fiona
+shapely
+pyproj
+pymongo
+duckdb
+pydantic
+python-dotenv
+fastapi
+uvicorn[standard]
+typer
+pyyaml

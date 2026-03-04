@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: open-data-geodb
+Version: 0.1.0
+Summary: Quarterly ingest pipeline for cadastral polygons
+Requires-Python: >=3.11
+Requires-Dist: geopandas
+Requires-Dist: fiona
+Requires-Dist: shapely
+Requires-Dist: pyproj
+Requires-Dist: pymongo
+Requires-Dist: duckdb
+Requires-Dist: pydantic
+Requires-Dist: python-dotenv
+Requires-Dist: fastapi
+Requires-Dist: uvicorn[standard]
+Requires-Dist: typer
+Requires-Dist: pyyaml

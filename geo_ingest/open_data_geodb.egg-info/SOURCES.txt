@@ -1,0 +1,9 @@
+README.md
+api.py
+ingest.py
+pyproject.toml
+open_data_geodb.egg-info/PKG-INFO
+open_data_geodb.egg-info/SOURCES.txt
+open_data_geodb.egg-info/dependency_links.txt
+open_data_geodb.egg-info/requires.txt
+open_data_geodb.egg-info/top_level.txt

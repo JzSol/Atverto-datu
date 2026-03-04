@@ -1,0 +1,29 @@
+[project]
+name = "open-data-geodb"
+version = "0.1.0"
+description = "Quarterly ingest pipeline for cadastral polygons"
+requires-python = ">=3.11"
+dependencies = [
+  "geopandas",
+  "fiona",
+  "shapely",
+  "pyproj",
+  "pymongo",
+  "duckdb",
+  "pydantic",
+  "python-dotenv",
+  "fastapi",
+  "uvicorn[standard]",
+  "typer",
+  "pyyaml",
+]
+
+[build-system]
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["ingest", "api"]
+
+[tool.pydocstyle]
+convention = "google"

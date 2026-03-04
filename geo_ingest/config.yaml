@@ -1,0 +1,11 @@
+open_data_path: "./open-data"
+output_path: "../local-data/regions"
+duckdb_path: "../local-data/geodb.duckdb"
+storage_mode: "local,duckdb"
+mongodb_uri: "mongodb://localhost:27017"
+database: "open_data"
+collection: "properties"
+kadastrs_field: "kadastrs"
+batch_size: 500
+drop_collection: false
+log_level: "INFO"

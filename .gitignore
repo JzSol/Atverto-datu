@@ -1,0 +1,31 @@
+node_modules/
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+# Local open data drops
+geo_ingest/open-data/
+local-data/
+
+# Raw geospatial data files (keep out of git)
+*.shp
+*.shx
+*.dbf
+*.sbn
+*.sbx
+*.cpg
+*.prj
+*.shp.xml
+*.geojson
+*.gpkg
+*.gdb
+*.kml
+*.kmz
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp
