@@ -1,75 +1,79 @@
-# App Startup Guide
+# Project Run Guide
 
-Short guide to run the backend API and the frontend UI.
+## 1) Backend setup (one time)
 
-## 1) Backend API (Python + FastAPI)
-
-Create a virtual environment and install dependencies:
-
-```
+```bash
 cd /Users/JanisMac_mini/Atverto-datu/geo_ingest
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
 
-Configure MongoDB:
+## 2) Configure environment
 
-- For Atlas, set `MONGODB_URI` in `geo_ingest/.env`.
-- Ensure your IP is allow-listed in Atlas Network Access.
-- For local JSON only, set `STORAGE_MODE=local` and `OUTPUT_PATH=../local-data/regions`.
-- For fast local queries, set `STORAGE_MODE=duckdb` (or `local,duckdb`) and `DUCKDB_PATH=../local-data/geodb.duckdb`.
-- Set `MAPBOX_ACCESS_TOKEN` in `geo_ingest/.env` (frontend reads it via API config endpoint).
+Edit `geo_ingest/.env` and set at least:
 
-## JSON → DuckDB migration
-
-If you already have local JSON and want to populate DuckDB without the raw shapefiles:
-
+```env
+STORAGE_MODE="local,duckdb"
+OUTPUT_PATH="../local-data/regions"
+DUCKDB_PATH="../local-data/geodb.duckdb"
+MAPBOX_ACCESS_TOKEN="your_mapbox_token"
 ```
+
+If using MongoDB Atlas, also set:
+
+```env
+MONGODB_URI="your_mongodb_uri"
+MONGODB_DATABASE="open_data"
+MONGODB_COLLECTION="properties"
+```
+
+## 3) Prepare data (only when needed)
+
+If you already have JSON in `local-data/regions` and want to rebuild DuckDB:
+
+```bash
 cd /Users/JanisMac_mini/Atverto-datu/geo_ingest
 source .venv/bin/activate
 python3 ingest.py migrate-json-to-duckdb
 ```
 
-Start the API:
+## 4) Run API
 
-```
-python3 -m uvicorn api:app --reload
+```bash
+cd /Users/JanisMac_mini/Atverto-datu/geo_ingest
+source .venv/bin/activate
+uvicorn api:app --reload
 ```
 
-Health check:
+Check API:
 
-```
+```bash
 curl http://127.0.0.1:8000/health
 ```
 
-## 2) Frontend UI (static)
+## 5) Run frontend
 
-Install the frontend dev server:
+In a new terminal:
 
-```
+```bash
 cd /Users/JanisMac_mini/Atverto-datu
 npm install
-```
-
-Start the UI:
-
-```
 npm run dev
 ```
 
-Open in browser:
+Open:
 
 - `http://127.0.0.1:5173`
-- On another device: `http://<your-mac-ip>:5173`
 
-## 3) What should happen
+## 6) Test
 
-- The UI will call the API at `http://<same-host>:8000`.
-- Searching by `kadastrs` should return a GeoJSON feature and zoom the map.
+1. Enter cadastre number (example: `50720060539`).
+2. Click search.
+3. Map should zoom to property and show geometry.
 
-## Common issues
+## 7) Quick fixes
 
-- **Failed to fetch**: API not running or blocked. Check `uvicorn` logs.
-- **SSL handshake failed**: Atlas IP not allow-listed or network blocked.
-- **404 not found**: No data ingested yet.
+- `Failed to fetch`: API is not running on `127.0.0.1:8000`.
+- `Property not found`: data is not ingested for that cadastre.
+- Map token error: `MAPBOX_ACCESS_TOKEN` is missing in `geo_ingest/.env`.
