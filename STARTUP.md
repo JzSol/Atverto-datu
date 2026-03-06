@@ -19,6 +19,7 @@ Configure MongoDB:
 - Ensure your IP is allow-listed in Atlas Network Access.
 - For local JSON only, set `STORAGE_MODE=local` and `OUTPUT_PATH=../local-data/regions`.
 - For fast local queries, set `STORAGE_MODE=duckdb` (or `local,duckdb`) and `DUCKDB_PATH=../local-data/geodb.duckdb`.
+- Set `MAPBOX_ACCESS_TOKEN` in `geo_ingest/.env` (frontend reads it via API config endpoint).
 
 ## JSON → DuckDB migration
 

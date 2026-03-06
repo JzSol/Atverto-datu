@@ -2,7 +2,7 @@ const pageHost = window.location.hostname || "localhost";
 const pageProtocol = window.location.protocol === "https:" ? "https:" : "http:";
 const defaultApiBase = `${pageProtocol}//${pageHost}:8000`;
 const API_BASE = window.API_BASE || defaultApiBase;
-const MAPBOX_TOKEN = window.MAPBOX_ACCESS_TOKEN || "";
+const WINDOW_MAPBOX_TOKEN = window.MAPBOX_ACCESS_TOKEN || "";
 
 const form = document.getElementById("search-form");
 const input = document.getElementById("kadastrs-input");
@@ -19,20 +19,32 @@ const commandsText = [
 ].join("\n");
 const testCadaster = "50720060539";
 
-if (!MAPBOX_TOKEN) {
-  setStatus("Mapbox token missing.", true);
-  console.warn("Mapbox token missing.");
-}
-
 console.info("API base:", API_BASE);
 
-mapboxgl.accessToken = MAPBOX_TOKEN;
-const map = new mapboxgl.Map({
-  container: "map",
-  style: "mapbox://styles/mapbox/satellite-streets-v12",
-  center: [24.6032, 56.8796],
-  zoom: 7,
-});
+let map = null;
+function initMap(token) {
+  if (!token) {
+    setStatus("Mapbox token missing. Set MAPBOX_ACCESS_TOKEN in backend env.", true);
+    console.warn("Mapbox token missing.");
+    return false;
+  }
+  mapboxgl.accessToken = token;
+  map = new mapboxgl.Map({
+    container: "map",
+    style: "mapbox://styles/mapbox/satellite-streets-v12",
+    center: [24.6032, 56.8796],
+    zoom: 7,
+  });
+  return true;
+}
+
+async function fetchFrontendConfig() {
+  const response = await fetch(`${API_BASE}/frontend-config`);
+  if (!response.ok) {
+    throw new Error(`Frontend config failed (${response.status})`);
+  }
+  return response.json();
+}
 
 const sourceId = "cadastre";
 const fillLayerId = "cadastre-fill";
@@ -41,6 +53,7 @@ const labelLayerId = "cadastre-label";
 const outlineLayerId = "cadastre-outline";
 
 function clearLayers() {
+  if (!map) return;
   if (map.getLayer(fillLayerId)) {
     map.removeLayer(fillLayerId);
   }
@@ -59,6 +72,9 @@ function clearLayers() {
 }
 
 function flattenCoordinates(coords, out = []) {
+  if (!Array.isArray(coords) || coords.length === 0) {
+    return out;
+  }
   if (typeof coords[0] === "number") {
     out.push(coords);
     return out;
@@ -126,6 +142,10 @@ async function fetchAll(region) {
 }
 
 function renderFeature(feature) {
+  if (!map) {
+    setStatus("Map unavailable: missing Mapbox token.", true);
+    return;
+  }
   clearLayers();
   if (!feature || (!feature.geometry && feature.type !== "FeatureCollection")) {
     console.error("Feature is missing geometry:", feature);
@@ -310,7 +330,22 @@ async function checkHealth() {
   }
 }
 
-checkHealth();
+async function bootstrap() {
+  await checkHealth();
+  if (WINDOW_MAPBOX_TOKEN) {
+    initMap(WINDOW_MAPBOX_TOKEN);
+    return;
+  }
+  try {
+    const cfg = await fetchFrontendConfig();
+    initMap(cfg.mapboxAccessToken || "");
+  } catch (error) {
+    console.error("Frontend config failed:", error);
+    setStatus("Map config unavailable. Check API and env.", true);
+  }
+}
+
+bootstrap();
 
 async function copyText(text, successMessage) {
   try {
@@ -342,6 +377,10 @@ form.addEventListener("submit", async (event) => {
     setStatus("Enter a kadastrs number.", true);
     return;
   }
+  if (!map) {
+    setStatus("Map unavailable: missing Mapbox token.", true);
+    return;
+  }
   setStatus("Loading...");
   try {
     const feature = await fetchProperty(kadastrs);
@@ -365,6 +404,10 @@ if (loadAllButton) {
     const region = regionSelect ? regionSelect.value : "";
     if (!region) {
       setStatus("Select a region to load.", true);
+      return;
+    }
+    if (!map) {
+      setStatus("Map unavailable: missing Mapbox token.", true);
       return;
     }
     setStatus("Loading all properties...");

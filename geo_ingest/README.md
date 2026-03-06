@@ -30,6 +30,7 @@ pip install -e .
 - `STORAGE_MODE` controls output: `local`, `mongo`, `duckdb`, or combinations like `local,duckdb`.
 - `OUTPUT_PATH` is used for local JSON output (region subfolders).
 - `DUCKDB_PATH` controls the local DuckDB file path.
+- `MAPBOX_ACCESS_TOKEN` is served to frontend by API (`/frontend-config`) so token is not hardcoded in frontend files.
 - For Atlas, set `MONGODB_URI` to your cluster connection string and use `STORAGE_MODE=mongo` or `local,mongo`.
 
 ## Run

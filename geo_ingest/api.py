@@ -26,6 +26,7 @@ class ApiConfig:
     output_path: Path
     duckdb_path: Path
     storage_mode: str
+    mapbox_access_token: str
     log_level: str
 
 
@@ -55,6 +56,10 @@ def load_config(config_path: Path) -> ApiConfig:
         output_path=output_path,
         duckdb_path=duckdb_path,
         storage_mode=str(storage_mode).strip().lower(),
+        mapbox_access_token=os.getenv(
+            "MAPBOX_ACCESS_TOKEN",
+            os.getenv("NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN", data.get("mapbox_access_token", "")),
+        ),
         log_level=os.getenv("LOG_LEVEL", data.get("log_level", "INFO")),
     )
 
@@ -136,6 +141,12 @@ def shutdown() -> None:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/frontend-config")
+def frontend_config() -> dict:
+    cfg = app.state.config
+    return {"mapboxAccessToken": cfg.mapbox_access_token or ""}
 
 
 def list_regions(output_path: Path) -> list[str]:
