@@ -27,6 +27,7 @@ pip install -e .
 
 - Update `config.yaml` or set environment variables from `.env` / `.env.example`.
 - `OPEN_DATA_PATH` should point to the folder with the quarterly drop.
+- `layers` in `config.yaml` defines each dataset (cadastre, biotopi, etc) with its `path` and display defaults.
 - `STORAGE_MODE` controls output: `local`, `mongo`, `duckdb`, or combinations like `local,duckdb`.
 - `OUTPUT_PATH` is used for local JSON output (region subfolders).
 - `DUCKDB_PATH` controls the local DuckDB file path.
@@ -44,8 +45,23 @@ python ingest.py --dry-run
 Ingest:
 
 ```
-python ingest.py
+python ingest.py ingest
 ```
+
+Ingest a single layer:
+
+```
+python ingest.py ingest --layer biotopi
+```
+
+DAP layers (from `dap_dati`):
+
+- `biotopi`
+- `aizsargajamie_koki`
+- `dabas_pieminekli`
+- `invazivas_sugas`
+- `iadt`
+- `sugas`
 
 ## JSON → DuckDB migration
 
@@ -72,13 +88,25 @@ Example request:
 curl "http://localhost:8000/properties?kadastrs=1234567890"
 ```
 
+List available layers:
+
+```
+curl "http://localhost:8000/layers"
+```
+
+Fetch layer features:
+
+```
+curl "http://localhost:8000/layers/biotopi/features"
+```
+
 ## Frontend
 
 Open the static UI in a browser:
 
 - File: `../apps/frontend/index.html`
 - Ensure the API is running at `http://localhost:8000`.
-- Mapbox token is configured in `apps/frontend/index.html`.
+- Mapbox token is read from `MAPBOX_ACCESS_TOKEN` via the API.
  
 
 ## Data expectations

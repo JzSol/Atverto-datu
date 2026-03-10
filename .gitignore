@@ -11,6 +11,7 @@ __pycache__/
 # Local open data drops
 geo_ingest/open-data/
 local-data/
+dap_dati/
 
 # Raw geospatial data files (keep out of git)
 *.shp

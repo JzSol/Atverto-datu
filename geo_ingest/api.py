@@ -18,6 +18,15 @@ from shapely.ops import unary_union
 
 
 @dataclass
+class LayerConfig:
+    id: str
+    label: str
+    path: Path
+    geometry_type: str
+    display: dict
+
+
+@dataclass
 class ApiConfig:
     mongodb_uri: str
     database: str
@@ -28,6 +37,45 @@ class ApiConfig:
     storage_mode: str
     mapbox_access_token: str
     log_level: str
+    layers: list[LayerConfig]
+
+
+def build_layers(data: dict, base_dir: Path, open_data_path: Path) -> list[LayerConfig]:
+    raw_layers = data.get("layers") or []
+    if not raw_layers:
+        raw_layers = [
+            {
+                "id": "cadastre",
+                "label": "Cadastre",
+                "path": str(open_data_path),
+                "geometry_type": "polygon",
+                "display": {},
+            }
+        ]
+    layers: list[LayerConfig] = []
+    for layer in raw_layers:
+        if not isinstance(layer, dict):
+            continue
+        layer_id = str(layer.get("id", "")).strip()
+        if not layer_id:
+            continue
+        label = str(layer.get("label") or layer_id).strip()
+        raw_path = layer.get("path") or str(open_data_path)
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = (base_dir / path).resolve()
+        geometry_type = str(layer.get("geometry_type") or "polygon")
+        display = layer.get("display") or {}
+        layers.append(
+            LayerConfig(
+                id=layer_id,
+                label=label,
+                path=path,
+                geometry_type=geometry_type,
+                display=display,
+            )
+        )
+    return layers
 
 
 def load_config(config_path: Path) -> ApiConfig:
@@ -48,6 +96,12 @@ def load_config(config_path: Path) -> ApiConfig:
         duckdb_path = (base_dir / duckdb_path).resolve()
     storage_mode = os.getenv("STORAGE_MODE", data.get("storage_mode", "local"))
 
+    open_data_raw = os.getenv("OPEN_DATA_PATH", data.get("open_data_path", "../open-data"))
+    open_data_path = open_data_raw if isinstance(open_data_raw, Path) else Path(open_data_raw)
+    if not open_data_path.is_absolute():
+        open_data_path = (base_dir / open_data_path).resolve()
+    layers = build_layers(data, base_dir, open_data_path)
+
     return ApiConfig(
         mongodb_uri=os.getenv("MONGODB_URI", data.get("mongodb_uri", "mongodb://localhost:27017")),
         database=os.getenv("MONGODB_DATABASE", data.get("database", "open_data")),
@@ -61,6 +115,7 @@ def load_config(config_path: Path) -> ApiConfig:
             os.getenv("NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN", data.get("mapbox_access_token", "")),
         ),
         log_level=os.getenv("LOG_LEVEL", data.get("log_level", "INFO")),
+        layers=layers,
     )
 
 
@@ -81,6 +136,40 @@ def configure_logging(level: str) -> None:
         level=level.upper(),
         format="%(asctime)s %(levelname)s %(message)s",
     )
+
+
+def ensure_duckdb_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS features (
+            feature_id TEXT PRIMARY KEY,
+            layer_id TEXT,
+            kadastrs TEXT,
+            property_name TEXT,
+            region TEXT,
+            source_file TEXT,
+            properties_json TEXT,
+            geometry_json TEXT
+        );
+        """
+    )
+    try:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info('features')").fetchall()]
+        if "layer_id" not in columns:
+            conn.execute("ALTER TABLE features ADD COLUMN layer_id TEXT")
+            conn.execute(
+                "UPDATE features SET layer_id = 'cadastre' WHERE layer_id IS NULL OR layer_id = ''"
+            )
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS features_kadastrs_idx ON features(kadastrs)")
+        conn.execute("CREATE INDEX IF NOT EXISTS features_layer_idx ON features(layer_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS features_layer_kadastrs_idx ON features(layer_id, kadastrs)"
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 app = FastAPI(title="Open Data GeoDB")
@@ -122,6 +211,7 @@ def startup() -> None:
 
         cfg.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
         app.state.duckdb = duckdb.connect(str(cfg.duckdb_path), read_only=False)
+        ensure_duckdb_schema(app.state.duckdb)
         logging.info("Connected to DuckDB %s", cfg.duckdb_path)
     else:
         app.state.duckdb = None
@@ -149,15 +239,112 @@ def frontend_config() -> dict:
     return {"mapboxAccessToken": cfg.mapbox_access_token or ""}
 
 
+def get_layer_config(cfg: ApiConfig, layer_id: str) -> LayerConfig | None:
+    for layer in cfg.layers:
+        if layer.id == layer_id:
+            return layer
+    return None
+
+
+def parse_bbox(raw: str) -> tuple[float, float, float, float]:
+    parts = [item.strip() for item in raw.split(",")]
+    if len(parts) != 4:
+        raise ValueError("bbox must be minx,miny,maxx,maxy")
+    minx, miny, maxx, maxy = (float(item) for item in parts)
+    return minx, miny, maxx, maxy
+
+
+def geometry_intersects_bbox(geometry: dict, bbox: tuple[float, float, float, float]) -> bool:
+    try:
+        geom = shape(geometry)
+    except Exception:  # noqa: BLE001
+        return False
+    minx, miny, maxx, maxy = geom.bounds
+    return not (maxx < bbox[0] or maxy < bbox[1] or minx > bbox[2] or miny > bbox[3])
+
+
+@app.get("/layers")
+def layers() -> dict:
+    cfg = app.state.config
+    duckdb_conn = getattr(app.state, "duckdb", None)
+    payload = []
+    for layer in cfg.layers:
+        has_data = None
+        if duckdb_conn is not None:
+            try:
+                row = duckdb_conn.execute(
+                    "SELECT 1 FROM features WHERE layer_id = ? LIMIT 1",
+                    [layer.id],
+                ).fetchone()
+                has_data = bool(row)
+            except Exception:  # noqa: BLE001
+                has_data = None
+        payload.append(
+            {
+                "id": layer.id,
+                "label": layer.label,
+                "geometry_type": layer.geometry_type,
+                "display": layer.display or {},
+                "has_data": has_data,
+            }
+        )
+    return {"layers": payload}
+
+
+@app.get("/layers/{layer_id}/features")
+def layer_features(
+    layer_id: str,
+    limit: int = Query(2000, ge=1, le=50000),
+    bbox: str | None = Query(None, description="minx,miny,maxx,maxy"),
+) -> dict:
+    cfg = app.state.config
+    layer = get_layer_config(cfg, layer_id)
+    if not layer:
+        raise HTTPException(status_code=404, detail="Layer not found")
+
+    duckdb_conn = getattr(app.state, "duckdb", None)
+    if duckdb_conn is None:
+        raise HTTPException(status_code=400, detail="Layer data requires DuckDB.")
+
+    rows = duckdb_conn.execute(
+        "SELECT properties_json, geometry_json FROM features WHERE layer_id = ? LIMIT ?",
+        [layer_id, limit],
+    ).fetchall()
+    features = []
+    for properties_json, geometry_json in rows:
+        properties = json.loads(properties_json) if properties_json else {}
+        geometry = json.loads(geometry_json) if geometry_json else None
+        if not geometry:
+            continue
+        properties.setdefault("layer_id", layer_id)
+        features.append({"type": "Feature", "geometry": geometry, "properties": properties})
+
+    if bbox:
+        try:
+            bbox_tuple = parse_bbox(bbox)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        features = [feat for feat in features if geometry_intersects_bbox(feat.get("geometry"), bbox_tuple)]
+
+    return {
+        "type": "FeatureCollection",
+        "properties": {"layer_id": layer_id, "count": len(features)},
+        "features": features,
+    }
+
+
 def list_regions(output_path: Path) -> list[str]:
     if not output_path.exists():
         return []
     return sorted([p.name for p in output_path.iterdir() if p.is_dir()])
 
 
-def duckdb_regions(conn) -> list[str]:
+def duckdb_regions(conn, layer_id: str) -> list[str]:
     try:
-        rows = conn.execute("SELECT DISTINCT region FROM features ORDER BY region").fetchall()
+        rows = conn.execute(
+            "SELECT DISTINCT region FROM features WHERE layer_id = ? ORDER BY region",
+            [layer_id],
+        ).fetchall()
     except Exception:  # noqa: BLE001
         return []
     return [row[0] for row in rows if row and row[0]]
@@ -187,7 +374,7 @@ def regions() -> dict:
     cfg = app.state.config
     duckdb_conn = getattr(app.state, "duckdb", None)
     if duckdb_conn is not None:
-        return {"regions": duckdb_regions(duckdb_conn)}
+        return {"regions": duckdb_regions(duckdb_conn, "cadastre")}
     return {"regions": list_regions(cfg.output_path)}
 
 
@@ -198,12 +385,13 @@ def get_all_properties(region: str = Query("all")) -> dict:
     if duckdb_conn is not None:
         if region == "all":
             rows = duckdb_conn.execute(
-                "SELECT kadastrs, property_name, region, source_file, properties_json, geometry_json FROM features"
+                "SELECT kadastrs, property_name, region, source_file, properties_json, geometry_json FROM features WHERE layer_id = ?",
+                ["cadastre"],
             ).fetchall()
         else:
             rows = duckdb_conn.execute(
-                "SELECT kadastrs, property_name, region, source_file, properties_json, geometry_json FROM features WHERE region = ?",
-                [region],
+                "SELECT kadastrs, property_name, region, source_file, properties_json, geometry_json FROM features WHERE layer_id = ? AND region = ?",
+                ["cadastre", region],
             ).fetchall()
         features = []
         for kadastrs, property_name, region_name, source_file, properties_json, geometry_json in rows:
@@ -280,8 +468,8 @@ def get_property(kadastrs: str = Query(..., min_length=1)) -> dict:
     duckdb_conn = getattr(app.state, "duckdb", None)
     if duckdb_conn is not None:
         rows = duckdb_conn.execute(
-            "SELECT kadastrs, property_name, source_file, properties_json, geometry_json FROM features WHERE kadastrs = ?",
-            [kadastrs],
+            "SELECT kadastrs, property_name, source_file, properties_json, geometry_json FROM features WHERE layer_id = ? AND kadastrs = ?",
+            ["cadastre", kadastrs],
         ).fetchall()
         docs = []
         for kadastrs_value, property_name, source_file, properties_json, geometry_json in rows:

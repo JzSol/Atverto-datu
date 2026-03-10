@@ -38,6 +38,14 @@
             <button type="button" id="load-all">Load all</button>
           </div>
         </div>
+        <div class="layer-controls">
+          <div class="layer-title">Layers</div>
+          <div class="layer-actions">
+            <button type="button" id="enable-all-layers">Enable all</button>
+            <button type="button" id="disable-all-layers">Disable all</button>
+          </div>
+          <div id="layer-list" class="layer-list">Loading layers...</div>
+        </div>
         <div id="status" role="status"></div>
       </header>
 
@@ -51,7 +59,7 @@
             <pre>
 cd /Users/JanisMac_mini/Atverto-datu/geo_ingest
 source .venv/bin/activate
-python3 ingest.py
+python3 ingest.py ingest
             </pre>
             <div class="command-actions">
               <button type="button" id="copy-commands">Copy commands</button>

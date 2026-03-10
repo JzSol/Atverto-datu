@@ -12,10 +12,13 @@ const regionSelect = document.getElementById("region-select");
 const loadAllButton = document.getElementById("load-all");
 const copyCommandsButton = document.getElementById("copy-commands");
 const copyCadasterButton = document.getElementById("copy-cadaster");
+const layerListEl = document.getElementById("layer-list");
+const enableAllLayersButton = document.getElementById("enable-all-layers");
+const disableAllLayersButton = document.getElementById("disable-all-layers");
 const commandsText = [
   "cd /Users/JanisMac_mini/Atverto-datu/geo_ingest",
   "source .venv/bin/activate",
-  "python3 ingest.py",
+  "python3 ingest.py ingest",
 ].join("\n");
 const testCadaster = "50720060539";
 
@@ -46,11 +49,22 @@ async function fetchFrontendConfig() {
   return response.json();
 }
 
+async function fetchLayers() {
+  const response = await fetch(`${API_BASE}/layers`);
+  if (!response.ok) {
+    throw new Error(`Layers request failed (${response.status})`);
+  }
+  return response.json();
+}
+
 const sourceId = "cadastre";
 const fillLayerId = "cadastre-fill";
 const lineLayerId = "cadastre-line";
 const labelLayerId = "cadastre-label";
 const outlineLayerId = "cadastre-outline";
+
+const overlayCache = new Map();
+const overlayLayers = new Map();
 
 function clearLayers() {
   if (!map) return;
@@ -69,6 +83,175 @@ function clearLayers() {
   if (map.getSource(sourceId)) {
     map.removeSource(sourceId);
   }
+}
+
+function getOverlayIds(layerId) {
+  return {
+    sourceId: `layer-${layerId}`,
+    fillId: `layer-${layerId}-fill`,
+    lineId: `layer-${layerId}-line`,
+    circleId: `layer-${layerId}-circle`,
+  };
+}
+
+function ensureMapReady(callback) {
+  if (!map) return;
+  if (map.isStyleLoaded()) {
+    callback();
+  } else {
+    map.once("load", callback);
+  }
+}
+
+function removeOverlayLayer(layerId) {
+  if (!map) return;
+  const { sourceId, fillId, lineId, circleId } = getOverlayIds(layerId);
+  if (map.getLayer(fillId)) {
+    map.removeLayer(fillId);
+  }
+  if (map.getLayer(lineId)) {
+    map.removeLayer(lineId);
+  }
+  if (map.getLayer(circleId)) {
+    map.removeLayer(circleId);
+  }
+  if (map.getSource(sourceId)) {
+    map.removeSource(sourceId);
+  }
+}
+
+function detectGeometryTypes(data) {
+  const types = new Set();
+  if (!data) {
+    return types;
+  }
+  const features = data.type === "FeatureCollection" ? data.features || [] : [data];
+  for (const feature of features) {
+    const geomType = feature && feature.geometry && feature.geometry.type;
+    if (geomType) {
+      types.add(geomType);
+    }
+  }
+  return types;
+}
+
+function addOverlayLayer(layerDef, data) {
+  if (!map) return;
+  const { sourceId, fillId, lineId, circleId } = getOverlayIds(layerDef.id);
+  const display = layerDef.display || {};
+  const fillColor = display.fill_color || "#60a5fa";
+  const rawFillOpacity = Number(display.fill_opacity);
+  const fillOpacity = Number.isFinite(rawFillOpacity) ? rawFillOpacity : 0.2;
+  const lineColor = display.line_color || fillColor;
+  const rawLineWidth = Number(display.line_width);
+  const lineWidth = Number.isFinite(rawLineWidth) ? rawLineWidth : 1.5;
+  const circleColor = display.circle_color || lineColor;
+  const rawCircleRadius = Number(display.circle_radius);
+  const circleRadius = Number.isFinite(rawCircleRadius) ? rawCircleRadius : 4;
+  const geometryTypes = detectGeometryTypes(data);
+  const hasPolygon =
+    geometryTypes.has("Polygon") || geometryTypes.has("MultiPolygon");
+  const hasPoint = geometryTypes.has("Point") || geometryTypes.has("MultiPoint");
+  ensureMapReady(() => {
+    removeOverlayLayer(layerDef.id);
+    map.addSource(sourceId, {
+      type: "geojson",
+      data,
+    });
+    if (hasPolygon) {
+      map.addLayer({
+        id: fillId,
+        type: "fill",
+        source: sourceId,
+        filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
+        paint: {
+          "fill-color": fillColor,
+          "fill-opacity": fillOpacity,
+        },
+      });
+      map.addLayer({
+        id: lineId,
+        type: "line",
+        source: sourceId,
+        filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
+        paint: {
+          "line-color": lineColor,
+          "line-width": lineWidth,
+        },
+      });
+    }
+
+    if (hasPoint) {
+      map.addLayer({
+        id: circleId,
+        type: "circle",
+        source: sourceId,
+        filter: ["any", ["==", ["geometry-type"], "Point"], ["==", ["geometry-type"], "MultiPoint"]],
+        paint: {
+          "circle-color": circleColor,
+          "circle-radius": circleRadius,
+          "circle-opacity": 0.85,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 0.6,
+        },
+      });
+    }
+
+    const clickLayerId = hasPolygon ? fillId : circleId;
+    if (!clickLayerId) {
+      return;
+    }
+    map.off("click", clickLayerId);
+    map.on("click", clickLayerId, (event) => {
+      const props = (event.features && event.features[0] && event.features[0].properties) || {};
+      const popupContent = buildPopupContent(props);
+      new mapboxgl.Popup({ closeButton: true, maxWidth: "360px" })
+        .setLngLat(event.lngLat)
+        .setHTML(popupContent)
+        .addTo(map);
+    });
+  });
+}
+
+async function handleLayerToggle(layer, checked, checkbox) {
+  if (!map) {
+    setStatus("Map unavailable: missing Mapbox token.", true);
+    if (checkbox) {
+      checkbox.checked = false;
+    }
+    return;
+  }
+  if (!checked) {
+    removeOverlayLayer(layer.id);
+    return;
+  }
+  setStatus(`Loading layer ${layer.id}...`);
+  try {
+    const cached = overlayCache.get(layer.id);
+    const data = cached || (await fetchLayerFeatures(layer.id));
+    overlayCache.set(layer.id, data);
+    addOverlayLayer(layer, data);
+    setStatus(`Layer ${layer.id} loaded.`);
+  } catch (error) {
+    console.error("Layer load failed:", error);
+    setStatus(`Layer ${layer.id} failed to load.`, true);
+    if (checkbox) {
+      checkbox.checked = false;
+    }
+  }
+}
+
+function setAllLayers(enabled) {
+  overlayLayers.forEach((layer) => {
+    const checkbox = layerListEl
+      ? layerListEl.querySelector(`input[data-layer-id="${layer.id}"]`)
+      : null;
+    if (!checkbox || checkbox.checked === enabled) {
+      return;
+    }
+    checkbox.checked = enabled;
+    handleLayerToggle(layer, enabled, checkbox);
+  });
 }
 
 function flattenCoordinates(coords, out = []) {
@@ -313,6 +496,56 @@ function buildPopupContent(properties) {
   return `<div class="popup"><table>${rows}</table></div>`;
 }
 
+async function fetchLayerFeatures(layerId) {
+  const url = `${API_BASE}/layers/${encodeURIComponent(layerId)}/features`;
+  console.info("Requesting", url);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Layer request failed (${response.status})`);
+  }
+  return response.json();
+}
+
+async function loadLayerControls() {
+  if (!layerListEl) return;
+  try {
+    const payload = await fetchLayers();
+    const layers = (payload.layers || []).filter((layer) => layer.id !== "cadastre");
+    if (layers.length === 0) {
+      layerListEl.textContent = "No extra layers.";
+      return;
+    }
+    layerListEl.innerHTML = "";
+    layers.forEach((layer) => {
+      overlayLayers.set(layer.id, layer);
+      const item = document.createElement("label");
+      item.className = "layer-item";
+      const display = layer.display || {};
+      const swatchColor =
+        display.fill_color || display.circle_color || display.line_color || "#94a3b8";
+      const swatch = document.createElement("span");
+      swatch.className = "layer-swatch";
+      swatch.style.backgroundColor = swatchColor;
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.layerId = layer.id;
+      const label = document.createElement("span");
+      label.textContent = layer.label || layer.id;
+      item.appendChild(swatch);
+      item.appendChild(checkbox);
+      item.appendChild(label);
+      layerListEl.appendChild(item);
+
+      checkbox.addEventListener("change", (event) => {
+        handleLayerToggle(layer, event.target.checked, checkbox);
+      });
+    });
+  } catch (error) {
+    console.error("Layer list failed:", error);
+    layerListEl.textContent = "Layer list unavailable.";
+  }
+}
+
 async function checkHealth() {
   const url = `${API_BASE}/health`;
   try {
@@ -333,12 +566,18 @@ async function checkHealth() {
 async function bootstrap() {
   await checkHealth();
   if (WINDOW_MAPBOX_TOKEN) {
-    initMap(WINDOW_MAPBOX_TOKEN);
+    const ready = initMap(WINDOW_MAPBOX_TOKEN);
+    if (ready) {
+      await loadLayerControls();
+    }
     return;
   }
   try {
     const cfg = await fetchFrontendConfig();
-    initMap(cfg.mapboxAccessToken || "");
+    const ready = initMap(cfg.mapboxAccessToken || "");
+    if (ready) {
+      await loadLayerControls();
+    }
   } catch (error) {
     console.error("Frontend config failed:", error);
     setStatus("Map config unavailable. Check API and env.", true);
@@ -346,6 +585,18 @@ async function bootstrap() {
 }
 
 bootstrap();
+
+if (enableAllLayersButton) {
+  enableAllLayersButton.addEventListener("click", () => {
+    setAllLayers(true);
+  });
+}
+
+if (disableAllLayersButton) {
+  disableAllLayersButton.addEventListener("click", () => {
+    setAllLayers(false);
+  });
+}
 
 async function copyText(text, successMessage) {
   try {

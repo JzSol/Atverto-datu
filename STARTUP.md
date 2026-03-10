@@ -30,6 +30,33 @@ MONGODB_COLLECTION="properties"
 
 ## 3) Prepare data (only when needed)
 
+Layer sources are defined in `geo_ingest/config.yaml` under `layers`.
+
+Ingest all layers:
+
+```bash
+cd /Users/JanisMac_mini/Atverto-datu/geo_ingest
+source .venv/bin/activate
+python3 ingest.py ingest
+```
+
+Ingest only biotopi:
+
+```bash
+cd /Users/JanisMac_mini/Atverto-datu/geo_ingest
+source .venv/bin/activate
+python3 ingest.py ingest --layer biotopi
+```
+
+DAP layers (from `dap_dati`):
+
+- `biotopi`
+- `aizsargajamie_koki`
+- `dabas_pieminekli`
+- `invazivas_sugas`
+- `iadt`
+- `sugas`
+
 If you already have JSON in `local-data/regions` and want to rebuild DuckDB:
 
 ```bash
@@ -71,9 +98,11 @@ Open:
 1. Enter cadastre number (example: `50720060539`).
 2. Click search.
 3. Map should zoom to property and show geometry.
+4. Toggle the `Biotopi` layer to view biotopes.
 
 ## 7) Quick fixes
 
 - `Failed to fetch`: API is not running on `127.0.0.1:8000`.
 - `Property not found`: data is not ingested for that cadastre.
 - Map token error: `MAPBOX_ACCESS_TOKEN` is missing in `geo_ingest/.env`.
+- Layer list unavailable: API is not running or `/layers` failed.
